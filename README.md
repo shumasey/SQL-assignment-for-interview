@@ -57,3 +57,78 @@ select chas, zonenumber, case when accountid is null then 'Итого' else acco
 from res 
 where vremya>0
 ```
+
+# Еще одно задание
+## Задача
+У вас SQL база с таблицами:
+1) Users(userId, age)
+2) Purchases (purchaseId, userId, itemId, date)
+3) Items (itemId, price).
+Напишите SQL запросы для расчета следующих метрик:
+А) какую сумму в среднем в месяц тратит:
+- пользователи в возрастном диапазоне от 18 до 25 лет включительно
+- пользователи в возрастном диапазоне от 26 до 35 лет включительно
+Б) в каком месяце года выручка от пользователей в возрастном диапазоне 35+ самая большая
+В) какой товар обеспечивает дает наибольший вклад в выручку за последний год
+Г) топ-3 товаров по выручке и их доля в общей выручке за любой год
+
+## Решение
+```SQL
+--A)
+with resul as (select sum(case when Users.age between 18 and 25 then Items.price else 0 end) firstsum,
+					sum(case when Users.age between 26 and 35 then Items.price else 0 end) secondsum,
+					count(distinct date_trunc('month',Purchses.date)) totalmonth
+				from Purchases
+				join Users using(UserId)
+				join Items using(ItemId))
+select firstsum/totalmonth firstavg, secondsum/totalmonth secondavg 
+from resul
+
+--Б)
+with resul as (select date_part('year',Purchses.date) god, date_trunc('month',Purchses.date) mes, sum(Items.price) itog,
+				rank() over(partition by date_part('year',Purchses.date) order by sum(Items.price) desc) rang
+				from Purchases
+				join Users using(UserId)
+				join Items using(ItemId)
+				where Users.age >=35
+				group by 1, 2)
+select god, mes, itog 
+from resul 
+where rang=1 
+order by god
+
+--В)
+select Purchses.ItemId tovar, sum(Items.price) itog,
+	rank() over(partition by Purchses.ItemId order by sum(Items.price) desc) rang
+from Purchases
+join Items using(ItemId)
+where date_part('year',Purchses.date)=(select max(date_part('year',Purchses.date)) from Purchases)
+group by 1 
+order by 3 
+limit 1
+
+--Г) Если вы хотите получить результаты за каждый год
+with resul as (select date_part('year',Purchses.date) god, Purchses.ItemId tovar, sum(Items.price) itog,
+				sum(Items.price)/(sum(sum(Items.price)) over (partition by date_part('year',Purchses.date))) dolya,
+				rank() over(partition by Purchses.ItemId order by sum(Items.price) desc) rang
+				from Purchases
+				join Items using(ItemId)
+				group by 1, 2) 
+select god, tovar, itog, dolya
+from resul
+where rang in (1,2,3)
+order by god, itog desc
+
+--Г) Если год вводится извне в виде параметра $P{YEAR}
+with resul as (select Purchses.ItemId tovar, sum(Items.price) itog,
+				sum(Items.price)/(sum(sum(Items.price)) over ()) dolya,
+				rank() over(partition by Purchses.ItemId order by sum(Items.price) desc) rang
+				from Purchases
+				join Items using(ItemId)
+				where date_part('year',Purchses.date)=$P{YEAR}
+				group by 1) 
+select god, tovar, itog, dolya
+from resul
+where rang in (1,2,3)
+order by god, itog desc
+```
